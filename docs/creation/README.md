@@ -7,10 +7,10 @@ as previously it was written considering only OWASP.
 
 The rewrite was mostly done by Claude Opus 5, with GPT Sol as a reviewer.
 
-The prompt in [initial_plan.md](./initial_plan.md) describes the original request.
+The prompt was originally to edit the existing `zapseclog` package with new features that were briefly described in the original request.
 
-This generated the [implementation.md](./implementation.md) specification, which was then
-reviewed and changed for some time, until landing on the final version.
+This prompt generated the [implementation.md](./implementation.md) specification, which was then
+reviewed and changed in multiple iterations, until finally landing on a final version.
 
 After implementing the specification, a [review.md](./review.md) was generated, which
 resulted in some changes and fixes in the implementation until the final version (1.0) was
