@@ -1,0 +1,15 @@
+name: dev
+base: ubuntu@24.04
+sdks:
+  # base layer
+  - name: go
+    channel: 1.25/stable
+
+  # remote development
+  - name: vscode-remote
+
+  # agents
+  - name: claude-code
+    channel: latest/stable
+  - name: copilot
+    channel: latest/stable
