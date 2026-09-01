@@ -2,6 +2,8 @@
 
 Review date: 2026-08-31
 
+> Changes suggested here were later reflected into `implemention.md`.
+
 ## Verdict
 
 The library is useful and its main architecture is sound. The public API is

@@ -48,7 +48,7 @@ seclog.Log(event.AuthenticationXXXX(...))
 
 ### Be ready to extend beyond OWASP
 
-So I made the core logging to followw OWASP guidelines for logging.
+So I made the core logging to follow OWASP guidelines for logging.
 But now I need to *be ready* to support ECS (https://www.elastic.co/docs/reference/ecs/ecs-field-reference) and/or beyond.
 So I don't want to implement ECS right now, but I need to be ready for it.
 
