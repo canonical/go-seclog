@@ -185,9 +185,14 @@ func defaultHandler(model Model, w io.Writer) slog.Handler {
 //
 // To add fields to the record, see WithFields and ContextWithFields. To set the
 // actor of the event, see ContextWithPrincipal and LogWith.
+//
+// A nil context is treated as context.Background.
 func (l *Logger) Log(ctx context.Context, events ...EventFunc) {
 	if len(events) == 0 {
 		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
 	if !l.handler.Enabled(ctx, slog.LevelInfo) {
@@ -235,12 +240,18 @@ func (l *Logger) Log(ctx context.Context, events ...EventFunc) {
 // A non-nil principal replaces the principal in ctx, a nil one keeps it, and
 // &Principal{} logs an unknown actor explicitly. The fields override the
 // matching non-zero members of the logger and context fields.
+//
+// A nil context is treated as context.Background, as in Log.
 func (l *Logger) LogWith(
 	ctx context.Context,
 	principal *Principal,
 	fields Fields,
 	events ...EventFunc,
 ) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	ctx = ContextWithPrincipal(ctx, principal)
 	ctx = ContextWithFields(ctx, fields)
 	l.Log(ctx, events...)

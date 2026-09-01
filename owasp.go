@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"strings"
-	"time"
 )
 
 // owaspTimeLayout is the timestamp layout used by the OWASP profile.
@@ -67,7 +66,13 @@ func (owaspModel) NewHandler(w io.Writer) slog.Handler {
 			}
 			switch a.Key {
 			case slog.TimeKey:
-				return slog.String("datetime", a.Value.Any().(time.Time).Format(owaspTimeLayout))
+				// The handler may be composed with others, so a "time"
+				// attribute is not necessarily the record timestamp;
+				// anything else is passed through unchanged.
+				if a.Value.Kind() != slog.KindTime {
+					return a
+				}
+				return slog.String("datetime", a.Value.Time().Format(owaspTimeLayout))
 			case slog.MessageKey:
 				return slog.String("description", a.Value.String())
 			}

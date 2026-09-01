@@ -308,6 +308,102 @@ func TestHandlerSelection(t *testing.T) {
 	}
 }
 
+// TestLogAcceptsANilContext asserts that a nil context is treated as
+// context.Background, as log/slog does, rather than crashing the caller: a
+// security event is never worth taking the process down for.
+func TestLogAcceptsANilContext(t *testing.T) {
+	c := qt.New(t)
+
+	tests := []struct {
+		name string
+		log  func(logger *seclog.Logger)
+	}{{
+		name: "Log",
+		log: func(logger *seclog.Logger) {
+			logger.Log(nil, principalEvent())
+		},
+	}, {
+		name: "LogWith without a principal",
+		log: func(logger *seclog.Logger) {
+			logger.LogWith(nil, nil, seclog.Fields{}, principalEvent())
+		},
+	}, {
+		name: "LogWith with a principal and fields",
+		log: func(logger *seclog.Logger) {
+			//lint:ignore
+			logger.LogWith(nil, &seclog.Principal{Account: "user1"},
+				seclog.Fields{TraceID: "trace-1"}, principalEvent())
+		},
+	}, {
+		name: "package-level Log",
+		log: func(*seclog.Logger) {
+			seclog.Log(nil, principalEvent())
+		},
+	}, {
+		name: "package-level LogWith",
+		log: func(*seclog.Logger) {
+			seclog.LogWith(nil, &seclog.Principal{Account: "user1"},
+				seclog.Fields{TraceID: "trace-1"}, principalEvent())
+		},
+	}}
+
+	for _, test := range tests {
+		c.Run(test.name, func(c *qt.C) {
+			handler := newRecordingHandler()
+			logger := seclog.NewLogger(testAppID, seclog.WithHandler(handler))
+			withDefaultLogger(c, logger)
+
+			test.log(logger)
+
+			c.Assert(handler.Records(), qt.HasLen, 1)
+		})
+	}
+}
+
+// TestHandlerKeepsComposedAttributes asserts that the model handlers stay
+// usable when composed with an application handler, as their documentation
+// invites: an attribute that happens to use a slog built-in key belongs to the
+// application and must be neither fatal nor silently dropped.
+func TestHandlerKeepsComposedAttributes(t *testing.T) {
+	c := qt.New(t)
+
+	tests := []struct {
+		name       string
+		newHandler func(w io.Writer) slog.Handler
+		attrs      []any
+		want       map[string]any
+	}{{
+		name:       "the OWASP handler keeps a textual time attribute",
+		newHandler: seclog.NewOWASPHandler,
+		attrs:      []any{"time", "12:00"},
+		want:       map[string]any{"description": "hello", "level": "INFO", "time": "12:00"},
+	}, {
+		name:       "the ECS handler keeps a numeric time attribute",
+		newHandler: seclog.NewECSHandler,
+		attrs:      []any{"time", 5},
+		want:       map[string]any{"message": "hello", "time": float64(5)},
+	}, {
+		name:       "the ECS handler keeps a textual level attribute",
+		newHandler: seclog.NewECSHandler,
+		attrs:      []any{"level", "debug"},
+		want:       map[string]any{"message": "hello", "level": "debug"},
+	}, {
+		name:       "the ECS handler drops the record level",
+		newHandler: seclog.NewECSHandler,
+		attrs:      nil,
+		want:       map[string]any{"message": "hello"},
+	}}
+
+	for _, test := range tests {
+		c.Run(test.name, func(c *qt.C) {
+			var buffer bytes.Buffer
+			slog.New(test.newHandler(&buffer)).Info("hello", test.attrs...)
+
+			c.Assert(decodeRecords(buffer.Bytes()), qt.DeepEquals, []map[string]any{test.want})
+		})
+	}
+}
+
 func TestLogResolvesTheContextOnce(t *testing.T) {
 	c := qt.New(t)
 
