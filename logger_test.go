@@ -345,6 +345,22 @@ func TestLogAcceptsANilContext(t *testing.T) {
 			seclog.LogWith(nil, &seclog.Principal{Account: "user1"},
 				seclog.Fields{TraceID: "trace-1"}, principalEvent())
 		},
+	}, {
+		// A caller holding an optional context builds its values first,
+		// so the context helpers must tolerate a nil parent as well.
+		name: "values built from a nil context",
+		log: func(logger *seclog.Logger) {
+			ctx := seclog.ContextWithPrincipal(nil, &seclog.Principal{Account: "user1"})
+			ctx = seclog.ContextWithFields(ctx, seclog.Fields{TraceID: "trace-1"})
+			logger.Log(ctx, principalEvent())
+		},
+	}, {
+		name: "zero values built from a nil context",
+		log: func(logger *seclog.Logger) {
+			ctx := seclog.ContextWithPrincipal(nil, nil)
+			ctx = seclog.ContextWithFields(ctx, seclog.Fields{})
+			logger.Log(ctx, principalEvent())
+		},
 	}}
 
 	for _, test := range tests {

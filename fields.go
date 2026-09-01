@@ -218,7 +218,12 @@ type fieldsContextKey struct{}
 // The non-zero members override the fields already stored in ctx, and override
 // the logger's default fields at log time. The parent context is never
 // modified.
+//
+// A nil context is treated as context.Background.
 func ContextWithFields(ctx context.Context, fields Fields) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if fields == (Fields{}) {
 		return ctx
 	}

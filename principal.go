@@ -97,7 +97,12 @@ type principalContextKey struct{}
 // ContextWithPrincipal returns a copy of ctx carrying the given principal,
 // replacing any principal previously stored in ctx. A nil principal leaves
 // ctx unchanged. The parent context is never modified.
+//
+// A nil context is treated as context.Background.
 func ContextWithPrincipal(ctx context.Context, principal *Principal) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if principal == nil {
 		return ctx
 	}

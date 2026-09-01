@@ -248,10 +248,6 @@ func (l *Logger) LogWith(
 	fields Fields,
 	events ...EventFunc,
 ) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
 	ctx = ContextWithPrincipal(ctx, principal)
 	ctx = ContextWithFields(ctx, fields)
 	l.Log(ctx, events...)
