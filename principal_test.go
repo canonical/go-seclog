@@ -71,6 +71,7 @@ func TestContextWithPrincipal(t *testing.T) {
 
 	tests := []struct {
 		name       string
+		nilParent  bool
 		principals []*seclog.Principal
 		want       *seclog.Principal
 	}{{
@@ -93,15 +94,31 @@ func TestContextWithPrincipal(t *testing.T) {
 		name:       "nil principal keeps the previous one",
 		principals: []*seclog.Principal{principal1, nil},
 		want:       principal1,
+	}, {
+		name:       "a nil parent is treated as background",
+		nilParent:  true,
+		principals: []*seclog.Principal{principal1},
+		want:       principal1,
+	}, {
+		name:       "a nil parent with a nil principal is treated as background",
+		nilParent:  true,
+		principals: []*seclog.Principal{nil},
+		want:       nil,
 	}}
 
 	for _, test := range tests {
 		c.Run(test.name, func(c *qt.C) {
 			ctx := context.Background()
+			if test.nilParent {
+				ctx = nil
+			}
 			for _, principal := range test.principals {
 				ctx = seclog.ContextWithPrincipal(ctx, principal)
 			}
 
+			// The helper never returns a nil context, so a caller that
+			// builds its values before logging cannot be handed one.
+			c.Assert(ctx, qt.IsNotNil)
 			c.Assert(seclog.PrincipalFromContext(ctx), qt.DeepEquals, test.want)
 		})
 	}

@@ -16,6 +16,11 @@ const unknownPrincipal = "unknown"
 // Only the populated members are rendered by String, joined with a comma in a
 // fixed order. When no member is populated, the principal renders as unknown.
 //
+// The members are rendered as they are given and are never escaped or
+// validated. Sanitize any member that comes from an untrusted source,
+// such as the account name of a failed login, or use the ECS model,
+// which emits the members as their own JSON fields instead.
+//
 // e.g.:
 //
 //	Account: "user123", ServiceAccount: "service123"
@@ -45,9 +50,12 @@ func (p *Principal) String() string {
 	if p.isEmpty() {
 		return unknownPrincipal
 	}
+	// To add one more field:
+	//   Add its length to keys;
+	//   Add one to separators;
+	//   Add its length to the builder's capacity;
+	//   Add as writePrincipalFragment.
 
-	// The fragments are written into one builder, sized for the longest
-	// possible rendering, so that a principal costs a single allocation.
 	const keys = len("account:") + len("service_account:") + len("email:") + len("name:")
 	const separators = 3
 	var b strings.Builder
@@ -89,7 +97,12 @@ type principalContextKey struct{}
 // ContextWithPrincipal returns a copy of ctx carrying the given principal,
 // replacing any principal previously stored in ctx. A nil principal leaves
 // ctx unchanged. The parent context is never modified.
+//
+// A nil context is treated as context.Background.
 func ContextWithPrincipal(ctx context.Context, principal *Principal) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if principal == nil {
 		return ctx
 	}

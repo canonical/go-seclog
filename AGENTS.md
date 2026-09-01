@@ -7,6 +7,11 @@ Guidelines for AI coding agents and contributors working with the go-seclog pack
 `go-seclog` is a package for managing Security Event Logging in a common pattern. It is designed to easily
 follow the standards using a common API.
 
+### Structure
+
+- The original implementation prompt is available at `/docs/creation/`.
+- There are some examples available in `/cmd`.
+
 ## Important Notes for AI Assistants
 
 ### Understanding Context

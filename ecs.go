@@ -5,7 +5,6 @@ package seclog
 import (
 	"io"
 	"log/slog"
-	"time"
 )
 
 // ecsTimeLayout is the timestamp layout used for the ECS @timestamp field.
@@ -79,10 +78,19 @@ func (ecsModel) NewHandler(w io.Writer) slog.Handler {
 			}
 			switch a.Key {
 			case slog.TimeKey:
-				return slog.String("@timestamp", a.Value.Any().(time.Time).Format(ecsTimeLayout))
+				// The handler may be composed with others, so a "time"
+				// attribute is not necessarily the record timestamp;
+				// anything else is passed through unchanged.
+				if a.Value.Kind() != slog.KindTime {
+					return a
+				}
+				return slog.String("@timestamp", a.Value.Time().Format(ecsTimeLayout))
 			case slog.MessageKey:
 				return slog.String("message", a.Value.String())
 			case slog.LevelKey:
+				if _, isLevel := a.Value.Any().(slog.Level); !isLevel {
+					return a
+				}
 				return slog.Attr{}
 			}
 			return a

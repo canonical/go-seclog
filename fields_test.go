@@ -104,9 +104,10 @@ func TestContextWithFields(t *testing.T) {
 	fields2 := seclog.Fields{HostIP: "c", HostName: "d"}
 
 	tests := []struct {
-		name   string
-		fields []seclog.Fields
-		want   *seclog.Fields
+		name      string
+		nilParent bool
+		fields    []seclog.Fields
+		want      *seclog.Fields
 	}{{
 		name:   "without fields",
 		fields: nil,
@@ -130,15 +131,31 @@ func TestContextWithFields(t *testing.T) {
 			{UserAgent: "override"},
 		},
 		want: &seclog.Fields{UserAgent: "override", SourceIP: "b"},
+	}, {
+		name:      "a nil parent is treated as background",
+		nilParent: true,
+		fields:    []seclog.Fields{fields1},
+		want:      &fields1,
+	}, {
+		name:      "a nil parent with zero fields is treated as background",
+		nilParent: true,
+		fields:    []seclog.Fields{{}},
+		want:      nil,
 	}}
 
 	for _, test := range tests {
 		c.Run(test.name, func(c *qt.C) {
 			ctx := context.Background()
+			if test.nilParent {
+				ctx = nil
+			}
 			for _, fields := range test.fields {
 				ctx = seclog.ContextWithFields(ctx, fields)
 			}
 
+			// The helper never returns a nil context, so a caller that
+			// builds its values before logging cannot be handed one.
+			c.Assert(ctx, qt.IsNotNil)
 			c.Assert(seclog.FieldsFromContext(ctx), qt.DeepEquals, test.want)
 		})
 	}
