@@ -280,34 +280,17 @@ convention and not a real user name.
 `event.severity` uses this package's numeric convention: `INFO` is 1, `WARN` is
 2, and `CRITICAL` is 3.
 
-## Migrating from `zapseclog`
+## Examples
 
-The module, package name and import path all changed, and the `go.uber.org/zap`
-dependency is gone.
+Check `cmd/seclogexample` for examples of using this package.
 
-| `zapseclog` | `go-seclog` |
-| --- | --- |
-| `zapseclog.UseAppID("my-app")` | `seclog.Setup("my-app")` |
-| `zapseclog.UseDefaultFields(fields)` | `seclog.Setup(appID, seclog.WithFields(fields))` |
-| `zapseclog.NewLogger(appID, fields)` | `seclog.NewLogger(appID, seclog.WithFields(fields))` |
-| `logger.SetAppID(...)`, `logger.SetDefaultFields(...)` | removed; use `Setup()` or a new logger |
-| `zapseclog.OptionalFields` | `seclog.Fields` |
-| `OptionalFields.Port` (string) | `Fields.OWASPPort` (int) |
-| `OptionalFields.Geo` | `Fields.OWASPGeo` |
-| `zapseclog.WithFields(ctx, &fields)` | `seclog.ContextWithFields(ctx, fields)` |
-| `zapseclog.WithPrincipal(ctx, p)` | `seclog.ContextWithPrincipal(ctx, p)` |
-| `zapseclog.LoggablePrincipal` | removed; use `*seclog.Principal` |
-| `zapseclog.EventFn` | `seclog.EventFunc`, taking an `EventContext` |
-| `zapseclog.Event{Type, Level}` | `seclog.Event{Name, Severity}` |
-| `zapseclog.EventAuthenticationLoginSuccess()` | `event.AuthenticationLoginSuccess()` |
-| `zapseclog.EventAuthorizationFail(r)` | `event.AuthorizationFail(r)` |
-| `zapseclog.EventSystemCrash(r)` | `event.SystemCrash(r)` |
-| `zapseclog.EventUserCreated(id, attrs...)` | `event.UserCreated(id, attrs...)` |
-| `EventAuthenticationLoginLockReasonMaxRetries` | `event.LoginLockReasonMaxRetries` |
-| `LogWith(ctx, p, &fields, ...)` | `LogWith(ctx, p, fields, ...)` |
+## Contributing
 
-`WithX` names are now reserved for logger options, and context manipulation uses
-the `ContextWithX` names. The OWASP output is otherwise unchanged: the event
-identifiers, qualifier order, descriptions and field names are the same.
+Feel free to open issues or submit pull requests.
 
-For more examples, check `cmd/seclogexample`.
+It is recommended to use [workshop](https://ubuntu.com/workshop) for local development with agents:
+
+```bash
+workshop launch
+workshop shell dev
+```
