@@ -906,12 +906,11 @@ precedence over an unsafe zero-allocation shortcut.
 8. Remove zap-only files and dependencies, format the module, and run the
    targeted tests followed by the full package suite.
 
-The module targets Go 1.25, matching the `go-version: '1.25.x'` pin in the PR
-workflow. The `go` directive in `go.mod` is `go 1.25`, so any 1.25 patch
-release satisfies it and CI does not download a different toolchain. The
-implementation must not use language or standard library features newer than
-1.25. The workflow collects coverage only for the root package, so the
-`event` subpackage needs its own coverage target if that matters.
+The module targets Go 1.25. The PR workflow reads this version from the
+`go 1.25` directive in `go.mod`, so CI uses the latest matching patch release.
+The implementation must not use language or standard library features newer
+than 1.25. The workflow runs `go test ./...`, collecting coverage for all
+packages.
 
 ## Decisions now incorporated
 

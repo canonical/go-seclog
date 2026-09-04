@@ -1,0 +1,35 @@
+name: Release version
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Run Tests
+        run: go test -v ./...
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          generate_release_notes: true
+
+      - name: Publish to Go Proxy
+        run: |
+          MODULE_PATH=$(go list -m)
+          GOPROXY=https://proxy.golang.org go list -m "${MODULE_PATH}@${GITHUB_REF_NAME}"
