@@ -30,6 +30,7 @@ jobs:
           generate_release_notes: true
 
       - name: Publish to Go Proxy
+        continue-on-error: true   
         run: |
           MODULE_PATH=$(go list -m)
           GOPROXY=https://proxy.golang.org go list -m "${MODULE_PATH}@${GITHUB_REF_NAME}"
