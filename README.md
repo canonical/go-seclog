@@ -122,8 +122,7 @@ seclog.Log(ctx,
 > in the `severity` field instead, so security logs are not mixed with system
 > logs by level.
 
-Logging on a `nil` logger is safe: `Log()` and `LogWith()` discard the events,
-so an optional logger can be held by an application without a nil check.
+Logging on a `nil` logger is safe, `.Log()` and `.LogWith()` will discard the events.
 
 ```go
 var logger *seclog.Logger // never configured
