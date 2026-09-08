@@ -200,9 +200,10 @@ func defaultHandler(model Model, w io.Writer) slog.Handler {
 // To add fields to the record, see WithFields and ContextWithFields. To set the
 // actor of the event, see ContextWithPrincipal and LogWith.
 //
-// A nil context is treated as context.Background.
+// A nil context is treated as context.Background, and a nil logger discards
+// the events, so that an optional logger can be used without a nil check.
 func (l *Logger) Log(ctx context.Context, events ...EventFunc) {
-	if len(events) == 0 {
+	if l == nil || len(events) == 0 {
 		return
 	}
 	if ctx == nil {
@@ -255,16 +256,63 @@ func (l *Logger) Log(ctx context.Context, events ...EventFunc) {
 // &Principal{} logs an unknown actor explicitly. The fields override the
 // matching non-zero members of the logger and context fields.
 //
-// A nil context is treated as context.Background, as in Log.
+// A nil context is treated as context.Background and a nil logger discards the
+// events, as in Log.
 func (l *Logger) LogWith(
 	ctx context.Context,
 	principal *Principal,
 	fields Fields,
 	events ...EventFunc,
 ) {
+	if l == nil {
+		return
+	}
+
 	ctx = ContextWithPrincipal(ctx, principal)
 	ctx = ContextWithFields(ctx, fields)
 	l.Log(ctx, events...)
+}
+
+type loggerContextKey struct{}
+
+// ContextWithLogger returns a copy of ctx carrying the given logger, replacing
+// any logger previously stored in ctx. A nil logger leaves ctx unchanged. The
+// parent context is never modified.
+//
+// The package-level Log and LogWith use the logger stored in the context, so
+// that code called with that context logs with the identity and the
+// configuration chosen by its caller, without being given a logger:
+//
+//	ctx = seclog.ContextWithLogger(ctx, seclog.NewLogger("my-app"))
+//	seclog.Log(ctx, event.SystemStartup()) // logs as "my-app"
+//
+// The methods of a Logger always use their receiver and ignore the logger
+// stored in the context.
+//
+// The logger is stored as it is, not copied: its configuration is immutable,
+// so the stored logger cannot change while another goroutine is logging.
+//
+// A nil context is treated as context.Background.
+func ContextWithLogger(ctx context.Context, logger *Logger) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if logger == nil {
+		return ctx
+	}
+
+	return context.WithValue(ctx, loggerContextKey{}, logger)
+}
+
+// loggerFromContext extracts the logger stored in ctx, or nil when none is
+// present. A nil context carries no logger.
+func loggerFromContext(ctx context.Context) *Logger {
+	if ctx == nil {
+		return nil
+	}
+
+	logger, _ := ctx.Value(loggerContextKey{}).(*Logger)
+	return logger
 }
 
 // defaultLogger is the logger used by the package-level functions. It is
@@ -279,9 +327,11 @@ func init() {
 // Setup replaces the configuration of the package-level logger.
 //
 // Use it when the process has a single application ID and uses the
-// package-level functions; otherwise create a logger with NewLogger. Until
-// Setup is called, the package-level logger uses the application ID "unknown"
-// and the OWASP model. An empty application ID also becomes "unknown".
+// package-level functions; otherwise create a logger with NewLogger and give
+// it to the code that logs, either directly or in the context with
+// ContextWithLogger. Until Setup is called, the package-level logger uses the
+// application ID "unknown" and the OWASP model. An empty application ID also
+// becomes "unknown".
 //
 //	seclog.Setup("my-app",
 //		seclog.WithFields(seclog.Fields{Region: "us-east-1"}),
@@ -292,13 +342,24 @@ func Setup(appID string, options ...Option) {
 	defaultLogger.Store(NewLogger(appID, options...))
 }
 
-// Log emits one record per event with the package-level logger, using the
-// principal and the fields stored in ctx. See Logger.Log.
-func Log(ctx context.Context, events ...EventFunc) {
-	defaultLogger.Load().Log(ctx, events...)
+// contextLoggerOrDefault returns the logger stored in ctx, or the
+// package-level logger when ctx carries none.
+func contextLoggerOrDefault(ctx context.Context) *Logger {
+	if logger := loggerFromContext(ctx); logger != nil {
+		return logger
+	}
+	return defaultLogger.Load()
 }
 
-// LogWith emits events with the package-level logger, using the given
+// Log emits one record per event with the logger stored in ctx by
+// ContextWithLogger, or with the package-level logger when ctx carries none,
+// using the principal and the fields stored in ctx. See Logger.Log.
+func Log(ctx context.Context, events ...EventFunc) {
+	contextLoggerOrDefault(ctx).Log(ctx, events...)
+}
+
+// LogWith emits events with the logger stored in ctx by ContextWithLogger, or
+// with the package-level logger when ctx carries none, using the given
 // principal and fields. See Logger.LogWith.
 func LogWith(
 	ctx context.Context,
@@ -306,5 +367,5 @@ func LogWith(
 	fields Fields,
 	events ...EventFunc,
 ) {
-	defaultLogger.Load().LogWith(ctx, principal, fields, events...)
+	contextLoggerOrDefault(ctx).LogWith(ctx, principal, fields, events...)
 }

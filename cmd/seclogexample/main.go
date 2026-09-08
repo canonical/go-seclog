@@ -55,6 +55,17 @@ func main() {
 	seclog.Log(ctx, event.SystemStartup())
 	customLogger.Log(ctx, event.SystemStartup())
 
+	// A logger can also travel in the context: the package-level functions
+	// emit with it instead of the package-level logger, so the code called
+	// with this context logs as "my-other-app".
+	customCtx := seclog.ContextWithLogger(ctx, customLogger)
+	seclog.Log(customCtx, event.SystemStartup())
+
+	// A nil logger discards the events, so an optional logger can be used
+	// without a nil check.
+	var optionalLogger *seclog.Logger
+	optionalLogger.Log(ctx, event.SystemStartup()) // emits nothing
+
 	// Using a principal:
 	// Storing the actor of the events in the context.
 	account := &seclog.Principal{Account: "my-username"}
