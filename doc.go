@@ -41,6 +41,16 @@
 //	logger := seclog.NewLogger("my-other-app", seclog.WithModel(seclog.NewECSModel()))
 //	logger.Log(ctx, event.SystemStartup())
 //
+// A logger can also travel in the context, so that code called with that
+// context logs with the configuration chosen by its caller instead of the
+// package-level one:
+//
+//	ctx = seclog.ContextWithLogger(ctx, logger)
+//	seclog.Log(ctx, event.SystemStartup()) // logs as "my-other-app"
+//
+// Logging on a nil logger discards the events, so an optional logger can be
+// used without a nil check.
+//
 // A one-off principal and extra fields can be given per call, and several
 // events can share one call:
 //

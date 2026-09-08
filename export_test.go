@@ -31,6 +31,11 @@ func PrincipalFromContext(ctx context.Context) *Principal {
 	return principalFromContext(ctx)
 }
 
+// LoggerFromContext exposes loggerFromContext for tests.
+func LoggerFromContext(ctx context.Context) *Logger {
+	return loggerFromContext(ctx)
+}
+
 // Merge exposes Fields.merge for tests.
 func (f Fields) Merge(override Fields) Fields {
 	return f.merge(override)

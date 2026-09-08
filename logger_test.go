@@ -390,6 +390,71 @@ func TestLogAcceptsANilContext(t *testing.T) {
 	}
 }
 
+// TestLogIgnoresANilLogger asserts that a nil logger discards the events
+// instead of crashing the caller, so that an optional logger held by an
+// application can be used without a nil check. Each case asserts that the call
+// does not panic.
+func TestLogIgnoresANilLogger(t *testing.T) {
+	c := qt.New(t)
+
+	tests := []struct {
+		name string
+		log  func(logger *seclog.Logger)
+	}{{
+		name: "Log",
+		log: func(logger *seclog.Logger) {
+			logger.Log(context.Background(), principalEvent())
+		},
+	}, {
+		name: "Log without events",
+		log: func(logger *seclog.Logger) {
+			logger.Log(context.Background())
+		},
+	}, {
+		name: "Log with a nil context",
+		log: func(logger *seclog.Logger) {
+			logger.Log(nil, principalEvent())
+		},
+	}, {
+		name: "LogWith",
+		log: func(logger *seclog.Logger) {
+			logger.LogWith(context.Background(), &seclog.Principal{Account: "user1"},
+				seclog.Fields{TraceID: "trace-1"}, principalEvent())
+		},
+	}, {
+		name: "LogWith with a nil context",
+		log: func(logger *seclog.Logger) {
+			logger.LogWith(nil, nil, seclog.Fields{}, principalEvent())
+		},
+	}, {
+		// The package-level logger is never nil in practice, but the
+		// package-level functions must not crash if it ever is.
+		name: "package-level Log",
+		log: func(*seclog.Logger) {
+			seclog.Log(context.Background(), principalEvent())
+		},
+	}, {
+		name: "package-level LogWith",
+		log: func(*seclog.Logger) {
+			seclog.LogWith(context.Background(), nil, seclog.Fields{}, principalEvent())
+		},
+	}, {
+		name: "a nil logger in the context",
+		log: func(*seclog.Logger) {
+			ctx := seclog.ContextWithLogger(context.Background(), nil)
+			seclog.Log(ctx, principalEvent())
+		},
+	}}
+
+	for _, test := range tests {
+		c.Run(test.name, func(c *qt.C) {
+			withDefaultLogger(c, nil)
+
+			test.log(nil)
+		})
+	}
+}
+
 // TestHandlerKeepsComposedAttributes asserts that the model handlers stay
 // usable when composed with an application handler, as their documentation
 // invites: an attribute that happens to use a slog built-in key belongs to the
@@ -658,6 +723,177 @@ func TestPackageLevelLog(t *testing.T) {
 	c.Assert(attrs(records[1])["trace_id"], qt.Equals, "t")
 }
 
+// TestContextWithLogger asserts the logger stored in the context, which the
+// package-level functions use in place of the package-level logger.
+func TestContextWithLogger(t *testing.T) {
+	c := qt.New(t)
+
+	logger1 := seclog.NewLogger("my-app-1")
+	logger2 := seclog.NewLogger("my-app-2")
+
+	tests := []struct {
+		name      string
+		nilParent bool
+		loggers   []*seclog.Logger
+		want      *seclog.Logger
+	}{{
+		name:    "without logger",
+		loggers: nil,
+		want:    nil,
+	}, {
+		name:    "nil logger is ignored",
+		loggers: []*seclog.Logger{nil},
+		want:    nil,
+	}, {
+		name:    "with logger",
+		loggers: []*seclog.Logger{logger1},
+		want:    logger1,
+	}, {
+		name:    "logger rewrite",
+		loggers: []*seclog.Logger{logger1, logger2},
+		want:    logger2,
+	}, {
+		name:    "nil logger keeps the previous one",
+		loggers: []*seclog.Logger{logger1, nil},
+		want:    logger1,
+	}, {
+		name:      "a nil parent is treated as background",
+		nilParent: true,
+		loggers:   []*seclog.Logger{logger1},
+		want:      logger1,
+	}, {
+		name:      "a nil parent with a nil logger is treated as background",
+		nilParent: true,
+		loggers:   []*seclog.Logger{nil},
+		want:      nil,
+	}}
+
+	for _, test := range tests {
+		c.Run(test.name, func(c *qt.C) {
+			ctx := context.Background()
+			if test.nilParent {
+				ctx = nil
+			}
+			for _, logger := range test.loggers {
+				ctx = seclog.ContextWithLogger(ctx, logger)
+			}
+
+			// The helper never returns a nil context, so a caller that
+			// builds its values before logging cannot be handed one.
+			c.Assert(ctx, qt.IsNotNil)
+
+			// The logger is stored as it is, so that the emitted
+			// records use its configuration and not a copy of it.
+			c.Assert(seclog.LoggerFromContext(ctx), qt.Equals, test.want)
+		})
+	}
+}
+
+// TestPackageLevelLogUsesTheContextLogger asserts that the package-level
+// functions emit with the logger carried by the context, so that code called
+// with that context logs with the configuration chosen by its caller, and fall
+// back to the package-level logger when the context carries none.
+func TestPackageLevelLogUsesTheContextLogger(t *testing.T) {
+	c := qt.New(t)
+
+	tests := []struct {
+		name            string
+		buildContext    func(contextLogger, defaultLogger *seclog.Logger) context.Context
+		log             func(ctx context.Context, defaultLogger *seclog.Logger)
+		wantContextLogs int
+		wantDefaultLogs int
+	}{{
+		name:            "Log uses the context logger",
+		buildContext:    contextWithContextLogger,
+		log:             packageLevelLog,
+		wantContextLogs: 1,
+	}, {
+		name:            "LogWith uses the context logger",
+		buildContext:    contextWithContextLogger,
+		log:             packageLevelLogWith,
+		wantContextLogs: 1,
+	}, {
+		name:            "Log falls back to the package-level logger",
+		buildContext:    contextWithoutLogger,
+		log:             packageLevelLog,
+		wantDefaultLogs: 1,
+	}, {
+		name:            "LogWith falls back to the package-level logger",
+		buildContext:    contextWithoutLogger,
+		log:             packageLevelLogWith,
+		wantDefaultLogs: 1,
+	}, {
+		name: "a nil logger keeps the package-level logger",
+		buildContext: func(_, _ *seclog.Logger) context.Context {
+			return seclog.ContextWithLogger(context.Background(), nil)
+		},
+		log:             packageLevelLog,
+		wantDefaultLogs: 1,
+	}, {
+		name: "the last logger of the context wins",
+		buildContext: func(contextLogger, defaultLogger *seclog.Logger) context.Context {
+			ctx := seclog.ContextWithLogger(context.Background(), defaultLogger)
+			return seclog.ContextWithLogger(ctx, contextLogger)
+		},
+		log:             packageLevelLog,
+		wantContextLogs: 1,
+	}, {
+		name: "a nil context is treated as background",
+		log: func(_ context.Context, _ *seclog.Logger) {
+			seclog.Log(nil, principalEvent())
+		},
+		buildContext:    contextWithContextLogger,
+		wantDefaultLogs: 1,
+	}, {
+		// A logger emits with its own configuration, so that a component
+		// holding one is not silently redirected by its caller.
+		name:         "the methods of a logger ignore the context logger",
+		buildContext: contextWithContextLogger,
+		log: func(ctx context.Context, defaultLogger *seclog.Logger) {
+			defaultLogger.Log(ctx, principalEvent())
+		},
+		wantDefaultLogs: 1,
+	}}
+
+	for _, test := range tests {
+		c.Run(test.name, func(c *qt.C) {
+			contextHandler := newRecordingHandler()
+			packageHandler := newRecordingHandler()
+			contextLogger := seclog.NewLogger("my-context-app", seclog.WithHandler(contextHandler))
+			packageLogger := seclog.NewLogger(testAppID, seclog.WithHandler(packageHandler))
+			withDefaultLogger(c, packageLogger)
+
+			test.log(test.buildContext(contextLogger, packageLogger), packageLogger)
+
+			c.Assert(contextHandler.Records(), qt.HasLen, test.wantContextLogs)
+			c.Assert(packageHandler.Records(), qt.HasLen, test.wantDefaultLogs)
+		})
+	}
+}
+
+// TestContextLoggerKeepsTheContextValues asserts that the logger of the
+// context resolves the principal and the fields of that same context, so that
+// nothing is lost by not passing the logger explicitly.
+func TestContextLoggerKeepsTheContextValues(t *testing.T) {
+	c := qt.New(t)
+
+	handler := newRecordingHandler()
+	withDefaultLogger(c, seclog.NewLogger("my-package-app", seclog.WithHandler(newRecordingHandler())))
+
+	ctx := seclog.ContextWithLogger(context.Background(),
+		seclog.NewLogger("my-context-app", seclog.WithHandler(handler)))
+	ctx = seclog.ContextWithPrincipal(ctx, &seclog.Principal{Account: "ctx"})
+	ctx = seclog.ContextWithFields(ctx, seclog.Fields{TraceID: "t"})
+
+	seclog.Log(ctx, principalEvent())
+
+	records := handler.Records()
+	c.Assert(records, qt.HasLen, 1)
+	c.Assert(attrs(records[0])["appid"], qt.Equals, "my-context-app")
+	c.Assert(attrs(records[0])["event"], qt.Equals, "mytype:<account:ctx>")
+	c.Assert(attrs(records[0])["trace_id"], qt.Equals, "t")
+}
+
 func TestConcurrentSetupAndLog(t *testing.T) {
 	c := qt.New(t)
 
@@ -699,6 +935,28 @@ func principalEvent() seclog.EventFunc {
 			Qualifiers: []string{ec.Principal.String()},
 		}
 	}
+}
+
+// contextWithContextLogger returns a context carrying the given context
+// logger, the usual setup of the context logger tests.
+func contextWithContextLogger(contextLogger, _ *seclog.Logger) context.Context {
+	return seclog.ContextWithLogger(context.Background(), contextLogger)
+}
+
+// contextWithoutLogger returns a context carrying no logger.
+func contextWithoutLogger(_, _ *seclog.Logger) context.Context {
+	return context.Background()
+}
+
+// packageLevelLog emits one event with the package-level Log.
+func packageLevelLog(ctx context.Context, _ *seclog.Logger) {
+	seclog.Log(ctx, principalEvent())
+}
+
+// packageLevelLogWith emits one event with the package-level LogWith.
+func packageLevelLogWith(ctx context.Context, _ *seclog.Logger) {
+	seclog.LogWith(ctx, &seclog.Principal{Account: "user1"},
+		seclog.Fields{TraceID: "trace-1"}, principalEvent())
 }
 
 // assertHandler asserts the logger's handler, skipping the assertion when the

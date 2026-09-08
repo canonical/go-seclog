@@ -47,6 +47,23 @@ logger uses the OWASP model and writes JSON to `os.Stdout`.
 An empty application ID becomes `unknown`, the same identity the package-level
 logger uses before `Setup()` is called.
 
+### Loggers in the context
+
+A logger can also travel in the context, with `ContextWithLogger()`. The
+package-level `Log()` and `LogWith()` emit with it instead of the package-level
+logger, so code called with that context logs with the identity and the
+configuration chosen by its caller, without being given a logger:
+
+```go
+ctx := seclog.ContextWithLogger(context.Background(), seclog.NewLogger("my-app"))
+
+seclog.Log(ctx, event.SystemStartup()) // logs as "my-app"
+```
+
+A `nil` logger leaves the context unchanged, and the methods of a `Logger`
+always emit with their receiver, ignoring the logger stored in the context. The
+principal and the fields of the context are used as usual.
+
 ### Handling emission failures
 
 Like `slog.Logger`, `Log()` does not return an error, and a record that the
@@ -104,6 +121,14 @@ seclog.Log(ctx,
 > event's own security significance (`INFO`, `WARN` or `CRITICAL`) is reported
 > in the `severity` field instead, so security logs are not mixed with system
 > logs by level.
+
+Logging on a `nil` logger is safe, `.Log()` and `.LogWith()` will discard the events.
+
+```go
+var logger *seclog.Logger // never configured
+
+logger.Log(ctx, event.SystemStartup()) // emits nothing
+```
 
 ### Principals
 
