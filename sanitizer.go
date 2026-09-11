@@ -46,7 +46,7 @@ type defaultSanitizer struct {
 var _ Sanitizer = defaultSanitizer{}
 
 // NewDefaultSanitizer creates a sanitizer that drops non-printable and
-// non-ASCII runes, drops OWASP delimiters, and truncates the result to
+// non-ASCII bytes, drops OWASP delimiters, and truncates the result to
 // maxLen bytes. Set 0 or below to use the default maximum length.
 //
 //	logger := seclog.NewLogger("my-app",
@@ -61,16 +61,29 @@ func NewDefaultSanitizer(maxLen int) Sanitizer {
 
 // Sanitize implements Sanitizer.
 func (d defaultSanitizer) Sanitize(s string) string {
-	s = strings.Map(func(r rune) rune {
-		if r < ' ' || r > '~' || strings.ContainsRune(unsafeChars, r) {
-			return -1
-		}
-		return r
-	}, s)
-	// Every remaining rune is a single-byte ASCII character, so the byte
-	// limit cannot split one.
-	if len(s) > d.MaxLen {
-		s = s[:d.MaxLen]
+	// Go through the string until we find an invalid byte.
+	keep := 0
+	for keep < len(s) && keep < d.MaxLen && safeByte(s[keep]) {
+		keep++
 	}
-	return s
+	// String is valid as is.
+	if keep == len(s) {
+		return s
+	}
+
+	// Grow from existing start until maxLen.
+	var b strings.Builder
+	b.Grow(min(len(s), d.MaxLen))
+	b.WriteString(s[:keep])
+	for i := keep; i < len(s) && b.Len() < d.MaxLen; i++ {
+		if safeByte(s[i]) {
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
+}
+
+// safeByte skips non-ASCII and unsafe chars.
+func safeByte(b byte) bool {
+	return b >= ' ' && b <= '~' && strings.IndexByte(unsafeChars, b) < 0
 }
