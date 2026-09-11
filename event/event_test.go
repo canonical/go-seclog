@@ -882,6 +882,10 @@ func TestVariadicArgumentsAreSnapshot(t *testing.T) {
 			values[0] = "mutated"
 
 			c.Assert(build(eventFunc, nil), qt.DeepEquals, test.want)
+			// The sanitized path is the one that keeps the values
+			// instead of the string joined at construction time, so
+			// it has to observe the snapshot as well.
+			c.Assert(buildSanitized(eventFunc), qt.DeepEquals, test.want)
 		})
 	}
 }

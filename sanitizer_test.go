@@ -48,6 +48,11 @@ func TestDefaultSanitizer(t *testing.T) {
 		input:  "user_name-1.2 (a)[b]{c}/d\\e*f?g!h#i$j%k&l'm\"n",
 		want:   "user_name-1.2 (a)[b]{c}/d\\e*f?g!h#i$j%k&l'm\"n",
 	}, {
+		name:   "the printable boundary runes are kept",
+		maxLen: 64,
+		input:  "\x1f ~\x7f",
+		want:   " ~",
+	}, {
 		name:   "the principal delimiters are dropped",
 		maxLen: 64,
 		input:  "<account:admin>",
