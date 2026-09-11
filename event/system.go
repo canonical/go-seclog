@@ -92,40 +92,33 @@ func SystemRestart() seclog.EventFunc {
 
 // SystemCrash generates sys_crash[:reason]
 //
-// If possible to catch an unstable condition resulting in the crash of a
-// system, logging that event could be helpful, especially if the event is
-// triggered by an attack.
-//
-// This is the only event with no principal, as a crash has no actor.
+// If sanitization is enabled, reason is sanitized.
 func SystemCrash(reason string) seclog.EventFunc {
-	// Nothing in this event depends on the EventContext, so it is built
-	// once here instead of on every log call.
-	event := seclog.Event{
-		Name:        "sys_crash",
-		Severity:    seclog.SeverityWarn,
-		Qualifiers:  []string{reason},
-		Description: fmt.Sprintf("Instance crashed with <reason:%s>", reason),
+	return func(ec seclog.EventContext) seclog.Event {
+		reason := ec.Sanitize(reason)
+		return seclog.Event{
+			Name:        "sys_crash",
+			Severity:    seclog.SeverityWarn,
+			Qualifiers:  []string{reason},
+			Description: fmt.Sprintf("Instance crashed with <reason:%s>", reason),
 
-		Kind:       seclog.KindEvent,
-		Action:     "system-crash",
-		Categories: processCategory,
-		Types:      errorType,
-		Outcome:    seclog.OutcomeFailure,
-		Reason:     reason,
-	}
-	return func(seclog.EventContext) seclog.Event {
-		return event
+			Kind:       seclog.KindEvent,
+			Action:     "system-crash",
+			Categories: processCategory,
+			Types:      errorType,
+			Outcome:    seclog.OutcomeFailure,
+			Reason:     reason,
+		}
 	}
 }
 
 // SystemMonitoringDisabled generates sys_monitor_disabled:[userid,monitor]
 //
-// If your systems contain agents responsible for file integrity, resources,
-// logging, virus, etc. it is especially valuable to know if they are halted
-// and by whom.
+// If sanitization is enabled, monitor is sanitized.
 func SystemMonitoringDisabled(monitor string) seclog.EventFunc {
 	return func(ec seclog.EventContext) seclog.Event {
 		principal := ec.Principal.String()
+		monitor := ec.Sanitize(monitor)
 		return seclog.Event{
 			Name:        "sys_monitor_disabled",
 			Severity:    seclog.SeverityWarn,

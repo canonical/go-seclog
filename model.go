@@ -94,7 +94,8 @@ type Event struct {
 	// Qualifiers are short additional qualifiers for the event identifier:
 	// an account name, a token ID, or a number of failed attempts. The
 	// OWASP model appends them to Name, joined by commas, without escaping
-	// the separators; see the package data policy.
+	// the separators, so a constructor sanitizes the values it receives
+	// with EventContext.Sanitize; see the package data policy.
 	Qualifiers []string
 
 	// Description is the human-readable event message. It is emitted as the
@@ -112,11 +113,36 @@ type Event struct {
 // breaking existing constructors.
 type EventContext struct {
 	// Principal is the actor resolved from the logging context. It may be
-	// nil; a nil principal renders as "unknown".
+	// nil; a nil principal renders as "unknown". Its members are already
+	// sanitized, so String needs no further treatment.
 	Principal *Principal
 
 	// Fields is the merged field set for this log call.
 	Fields Fields
+
+	// Sanitizer is the sanitizer configured on the logger, or nil when the
+	// logger has none. Prefer the Sanitize method, which handles both
+	// cases.
+	Sanitizer Sanitizer
+}
+
+// Sanitize returns value transformed by the logger's sanitizer, or value
+// unchanged when the logger has no sanitizer.
+//
+//	func MyEvent(resource string) seclog.EventFunc {
+//		return func(ec seclog.EventContext) seclog.Event {
+//			resource := ec.Sanitize(resource)
+//			...
+//		}
+//	}
+//
+// The value must be sanitized inside the returned function, as the sanitizer
+// is only known at log time.
+func (ec EventContext) Sanitize(value string) string {
+	if ec.Sanitizer == nil {
+		return value
+	}
+	return ec.Sanitizer.Sanitize(value)
 }
 
 // EventFunc constructs an Event once the logger has resolved the principal and

@@ -77,6 +77,85 @@ func TestPrincipalString(t *testing.T) {
 	}
 }
 
+func TestPrincipalSanitized(t *testing.T) {
+	c := qt.New(t)
+
+	sanitizer := seclog.NewDefaultSanitizer(64)
+
+	tests := []struct {
+		name       string
+		principal  *seclog.Principal
+		sanitizer  seclog.Sanitizer
+		want       *seclog.Principal
+		wantString string
+	}{{
+		name:       "a nil principal is kept",
+		principal:  nil,
+		sanitizer:  sanitizer,
+		want:       nil,
+		wantString: "unknown",
+	}, {
+		name:       "an empty principal is kept",
+		principal:  &seclog.Principal{},
+		sanitizer:  sanitizer,
+		want:       &seclog.Principal{},
+		wantString: "unknown",
+	}, {
+		name:       "a nil sanitizer keeps the members",
+		principal:  &seclog.Principal{Account: "<admin>"},
+		sanitizer:  nil,
+		want:       &seclog.Principal{Account: "<admin>"},
+		wantString: "<account:<admin>>",
+	}, {
+		name:       "a safe principal is unchanged",
+		principal:  &seclog.Principal{Account: "username1"},
+		sanitizer:  sanitizer,
+		want:       &seclog.Principal{Account: "username1"},
+		wantString: "<account:username1>",
+	}, {
+		name:       "every member is sanitized",
+		principal:  &seclog.Principal{Account: "a,1", ServiceAccount: "s<2", Email: "e>3", Name: "n:4"},
+		sanitizer:  sanitizer,
+		want:       &seclog.Principal{Account: "a1", ServiceAccount: "s2", Email: "e3", Name: "n4"},
+		wantString: "<account:a1,service_account:s2,email:e3,name:n4>",
+	}, {
+		name:       "an injected principal cannot forge a member",
+		principal:  &seclog.Principal{Account: "user1>,<account:admin"},
+		sanitizer:  sanitizer,
+		want:       &seclog.Principal{Account: "user1accountadmin"},
+		wantString: "<account:user1accountadmin>",
+	}, {
+		name:       "a principal left empty renders as unknown",
+		principal:  &seclog.Principal{Account: ",,,"},
+		sanitizer:  sanitizer,
+		want:       &seclog.Principal{},
+		wantString: "unknown",
+	}}
+
+	for _, test := range tests {
+		c.Run(test.name, func(c *qt.C) {
+			got := test.principal.Sanitized(test.sanitizer)
+
+			c.Assert(got, qt.DeepEquals, test.want)
+			c.Assert(got.String(), qt.Equals, test.wantString)
+		})
+	}
+}
+
+// TestPrincipalSanitizedCopiesValue asserts that the sanitized principal is a
+// copy, so that the principal stored in the context, which is shared by every
+// call made with that context, is never modified.
+func TestPrincipalSanitizedCopiesValue(t *testing.T) {
+	c := qt.New(t)
+
+	principal := &seclog.Principal{Account: "<admin>"}
+	sanitized := principal.Sanitized(seclog.NewDefaultSanitizer(64))
+
+	c.Assert(principal.Account, qt.Equals, "<admin>")
+	c.Assert(sanitized.Account, qt.Equals, "admin")
+	c.Assert(sanitized, qt.Not(qt.Equals), principal)
+}
+
 func TestContextWithPrincipal(t *testing.T) {
 	c := qt.New(t)
 

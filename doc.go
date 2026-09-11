@@ -91,4 +91,18 @@
 // Never pass secrets, credentials, access tokens or sensitive personal data to
 // this package, and prefer identifiers over the values they identify: event
 // constructors take a token ID, never a token.
+//
+// By default there is no sanitization, and every value is rendered as it is
+// given. As the OWASP profile renders the principal and the event qualifiers
+// as flat text, a value holding the delimiters of that profile can forge an
+// extra fragment. Use WithSanitizer for the values that come from an untrusted
+// source. The sanitizer is applied by the logger to Principal and event
+// constructors.
+//
+//	seclog.Setup("my-app", seclog.WithSanitizer(seclog.NewDefaultSanitizer(64)))
+//
+//	// Without a sanitizer: "authn_login_fail:<account:user1>,<account:admin>"
+//	// With one:            "authn_login_fail:<account:user1accountadmin>"
+//	seclog.LogWith(ctx, &seclog.Principal{Account: "user1>,<account:admin"},
+//		seclog.Fields{}, event.AuthenticationLoginFail())
 package seclog

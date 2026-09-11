@@ -882,6 +882,10 @@ func TestVariadicArgumentsAreSnapshot(t *testing.T) {
 			values[0] = "mutated"
 
 			c.Assert(build(eventFunc, nil), qt.DeepEquals, test.want)
+			// The sanitized path is the one that keeps the values
+			// instead of the string joined at construction time, so
+			// it has to observe the snapshot as well.
+			c.Assert(buildSanitized(eventFunc), qt.DeepEquals, test.want)
 		})
 	}
 }
@@ -1011,6 +1015,129 @@ func TestOWASPEventValue(t *testing.T) {
 		c.Run(test.name, func(c *qt.C) {
 			c.Assert(logEventValue(test.event), qt.Equals, test.want)
 		})
+	}
+}
+
+// TestArgumentsAreSanitized asserts that every constructor sanitizes the
+// values it receives from the application when the logger has a sanitizer.
+//
+// The values carry the OWASP delimiters, so that an unsanitized rendering
+// would forge extra qualifiers.
+func TestArgumentsAreSanitized(t *testing.T) {
+	c := qt.New(t)
+
+	tests := []struct {
+		name  string
+		event seclog.EventFunc
+		want  identity
+	}{{
+		name:  "AuthenticationLoginLock",
+		event: event.AuthenticationLoginLock("max,retries"),
+		want: identity{
+			Name:        "authn_login_lock",
+			Severity:    seclog.SeverityWarn,
+			Qualifiers:  []string{"unknown", "maxretries"},
+			Description: "User unknown login locked because maxretries",
+		},
+	}, {
+		name:  "AuthenticationTokenCreated",
+		event: event.AuthenticationTokenCreated("read<", ">write"),
+		want: identity{
+			Name:        "authn_token_created",
+			Severity:    seclog.SeverityInfo,
+			Qualifiers:  []string{"unknown", "read,write"},
+			Description: "A token has been created for unknown with entitlements <read,write>",
+		},
+	}, {
+		name:  "AuthenticationTokenRevoked",
+		event: event.AuthenticationTokenRevoked("token,1"),
+		want: identity{
+			Name:        "authn_token_revoked",
+			Severity:    seclog.SeverityInfo,
+			Qualifiers:  []string{"unknown", "token1"},
+			Description: "Token <id:token1> was revoked for user unknown",
+		},
+	}, {
+		name:  "AuthenticationTokenReuse",
+		event: event.AuthenticationTokenReuse("token>1"),
+		want: identity{
+			Name:        "authn_token_reuse",
+			Severity:    seclog.SeverityCritical,
+			Qualifiers:  []string{"unknown", "token1"},
+			Description: "User unknown attempted to use token <id:token1>",
+		},
+	}, {
+		name:  "AuthorizationFail",
+		event: event.AuthorizationFail("/admin,<secret>"),
+		want: identity{
+			Name:        "authz_fail",
+			Severity:    seclog.SeverityCritical,
+			Qualifiers:  []string{"unknown", "/adminsecret"},
+			Description: "User unknown attempted to access <resource:/adminsecret>",
+		},
+	}, {
+		name:  "AuthorizationAdmin",
+		event: event.AuthorizationAdmin("user,create", "created\nuser1"),
+		want: identity{
+			Name:        "authz_admin",
+			Severity:    seclog.SeverityWarn,
+			Qualifiers:  []string{"unknown", "usercreate"},
+			Description: "Admin unknown performed <event:usercreate>: createduser1",
+		},
+	}, {
+		name:  "SystemCrash",
+		event: event.SystemCrash("out,of,memory"),
+		want: identity{
+			Name:        "sys_crash",
+			Severity:    seclog.SeverityWarn,
+			Qualifiers:  []string{"outofmemory"},
+			Description: "Instance crashed with <reason:outofmemory>",
+		},
+	}, {
+		name:  "SystemMonitoringDisabled",
+		event: event.SystemMonitoringDisabled("antivirus,1"),
+		want: identity{
+			Name:        "sys_monitor_disabled",
+			Severity:    seclog.SeverityWarn,
+			Qualifiers:  []string{"unknown", "antivirus1"},
+			Description: "User unknown disabled <monitor:antivirus1>",
+		},
+	}, {
+		name:  "UserCreated",
+		event: event.UserCreated("user,1", "admin<", ">billing"),
+		want: identity{
+			Name:        "user_created",
+			Severity:    seclog.SeverityInfo,
+			Qualifiers:  []string{"unknown", "user1", "admin,billing"},
+			Description: "User unknown created <user:user1> with <attributes:admin,billing>",
+		},
+	}, {
+		name:  "UserUpdated",
+		event: event.UserUpdated("user:1", "admin", "bill,ing"),
+		want: identity{
+			Name:        "user_updated",
+			Severity:    seclog.SeverityInfo,
+			Qualifiers:  []string{"unknown", "user1", "admin,billing"},
+			Description: "User unknown updated <user:user1> with <attributes:admin,billing>",
+		},
+	}}
+
+	for _, test := range tests {
+		c.Run(test.name, func(c *qt.C) {
+			c.Assert(buildSanitized(test.event), qt.DeepEquals, test.want)
+		})
+	}
+}
+
+// buildSanitized evaluates an event function with a sanitizer and no
+// principal, and returns the OWASP identity of the resulting event.
+func buildSanitized(eventFunc seclog.EventFunc) identity {
+	e := eventFunc(seclog.EventContext{Sanitizer: seclog.NewDefaultSanitizer(64)})
+	return identity{
+		Name:        e.Name,
+		Severity:    e.Severity,
+		Qualifiers:  e.Qualifiers,
+		Description: e.Description,
 	}
 }
 

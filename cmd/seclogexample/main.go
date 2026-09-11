@@ -142,4 +142,20 @@ func main() {
 	)
 	bufferedLogger.Log(ctx, event.SystemShutdown())
 	fmt.Print(buffer.String())
+
+	// Sanitizing untrusted values:
+	// Without a sanitizer, the values are rendered as they are given, so an
+	// account name holding the OWASP delimiters forges a second fragment.
+	// WithSanitizer applies to the members of the principal and to the
+	// values the event constructors receive.
+	attacker := &seclog.Principal{Account: "my-username>,<account:admin"}
+	seclog.LogWith(ctx, attacker, seclog.Fields{}, event.AuthenticationLoginFail())
+
+	sanitizingLogger := seclog.NewLogger("my-app",
+		seclog.WithSanitizer(seclog.NewDefaultSanitizer(64)),
+	)
+	sanitizingLogger.LogWith(ctx, attacker, seclog.Fields{},
+		event.AuthenticationLoginFail(),
+		event.AuthorizationFail("database,<secret>"),
+	)
 }

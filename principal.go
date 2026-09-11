@@ -30,10 +30,10 @@ const unknownPrincipal = "unknown"
 // Only the populated members are rendered by String, joined with a comma in a
 // fixed order. When no member is populated, the principal renders as unknown.
 //
-// The members are rendered as they are given and are never escaped or
-// validated. Sanitize any member that comes from an untrusted source,
-// such as the account name of a failed login, or use the ECS model,
-// which emits the members as their own JSON fields instead.
+// By default there is no sanitization: the members are rendered as they are
+// given. Sanitize any member that comes from an untrusted source, such as the
+// account name of a failed login, or configure a sanitizer with
+// WithSanitizer, which the logger applies to every member before rendering.
 //
 // e.g.:
 //
@@ -56,6 +56,25 @@ type Principal struct {
 	// Name is the actor's human-readable display name.
 	// Rendered as <name:__>. ECS: user.full_name.
 	Name string
+}
+
+// sanitized returns a copy of p with every member passed through sanitizer, so
+// that the principal seen by the models and by the event constructors is
+// already safe to render.
+//
+// A nil receiver, an empty principal or a nil sanitizer returns the receiver
+// unchanged.
+func (p *Principal) sanitized(sanitizer Sanitizer) *Principal {
+	if sanitizer == nil || p.isEmpty() {
+		return p
+	}
+
+	return &Principal{
+		Account:        sanitizer.Sanitize(p.Account),
+		ServiceAccount: sanitizer.Sanitize(p.ServiceAccount),
+		Email:          sanitizer.Sanitize(p.Email),
+		Name:           sanitizer.Sanitize(p.Name),
+	}
 }
 
 // String renders the principal for the OWASP profile. A nil receiver, or a

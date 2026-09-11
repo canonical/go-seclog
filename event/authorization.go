@@ -25,9 +25,12 @@ import (
 // AuthorizationFail generates authz_fail[:userid,resource]
 //
 // An attempt was made to access a resource which was unauthorized.
+//
+// If sanitization is enabled, resource is sanitized.
 func AuthorizationFail(resource string) seclog.EventFunc {
 	return func(ec seclog.EventContext) seclog.Event {
 		principal := ec.Principal.String()
+		resource := ec.Sanitize(resource)
 		return seclog.Event{
 			Name:        "authz_fail",
 			Severity:    seclog.SeverityCritical,
@@ -47,11 +50,13 @@ func AuthorizationFail(resource string) seclog.EventFunc {
 //
 // All activity by privileged users such as admin should be recorded.
 //
-// The action argument is used verbatim as the ECS event.action, because the
-// package cannot know which administrative operation was performed.
+// The action argument is used as the ECS event.action.
+// If sanitization is enabled, action and details are sanitized.
 func AuthorizationAdmin(action string, details string) seclog.EventFunc {
 	return func(ec seclog.EventContext) seclog.Event {
 		principal := ec.Principal.String()
+		action := ec.Sanitize(action)
+		details := ec.Sanitize(details)
 		return seclog.Event{
 			Name:        "authz_admin",
 			Severity:    seclog.SeverityWarn,

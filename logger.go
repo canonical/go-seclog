@@ -39,6 +39,7 @@ type config struct {
 	model        Model
 	writer       io.Writer
 	handler      slog.Handler
+	sanitizer    Sanitizer
 	errorHandler func(error)
 }
 
@@ -63,6 +64,24 @@ func WithModel(model Model) Option {
 	return func(c *config) {
 		if model != nil {
 			c.model = model
+		}
+	}
+}
+
+// WithSanitizer sets the sanitizer applied to the user-controlled values of
+// every record: the members of the Principal, and the event values that the
+// constructors sanitize.
+//
+//	logger := seclog.NewLogger("my-app",
+//		seclog.WithSanitizer(seclog.NewDefaultSanitizer(64)),
+//	)
+//
+// Without it there is no sanitization, and the values are rendered as they are
+// given. A nil sanitizer is ignored and keeps the current value.
+func WithSanitizer(sanitizer Sanitizer) Option {
+	return func(c *config) {
+		if sanitizer != nil {
+			c.sanitizer = sanitizer
 		}
 	}
 }
@@ -138,6 +157,7 @@ type Logger struct {
 	fields       Fields
 	model        Model
 	handler      slog.Handler
+	sanitizer    Sanitizer
 	errorHandler func(error)
 }
 
@@ -174,6 +194,7 @@ func NewLogger(appID string, options ...Option) *Logger {
 		fields:       cfg.fields,
 		model:        cfg.model,
 		handler:      cfg.handler,
+		sanitizer:    cfg.sanitizer,
 		errorHandler: cfg.errorHandler,
 	}
 }
@@ -214,7 +235,8 @@ func (l *Logger) Log(ctx context.Context, events ...EventFunc) {
 		return
 	}
 
-	principal := principalFromContext(ctx)
+	principal := principalFromContext(ctx).sanitized(l.sanitizer)
+
 	fields := l.fields
 	if contextFields := fieldsFromContext(ctx); contextFields != nil {
 		fields = fields.merge(*contextFields)
@@ -222,7 +244,7 @@ func (l *Logger) Log(ctx context.Context, events ...EventFunc) {
 
 	// The principal and the fields are resolved once per call, so every
 	// event of this call observes exactly the same context.
-	ec := EventContext{Principal: principal, Fields: fields}
+	ec := EventContext{Principal: principal, Fields: fields, Sanitizer: l.sanitizer}
 	for _, eventFunc := range events {
 		if eventFunc == nil {
 			continue

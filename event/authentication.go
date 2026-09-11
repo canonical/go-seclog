@@ -25,10 +25,16 @@
 // Each event carries both its stable OWASP identity, used by the OWASP model,
 // and its ECS classification, used by the ECS model. Applications may define
 // their own constructors with the same signature.
+//
+// The constructors sanitize the values they receive with
+// seclog.EventContext.Sanitize, so a custom constructor should do the same for
+// the values that come from an untrusted source. Without seclog.WithSanitizer
+// on the logger, the values are rendered as they are given.
 package event
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -74,6 +80,22 @@ var (
 	errorType    = []string{typeError}
 	startType    = []string{typeStart}
 )
+
+// sanitizeJoin returns values sanitized one by one and joined by commas.
+//
+// Each value is sanitized on its own. The already joined value is
+// returned when the logger has no sanitizer.
+func sanitizeJoin(ec seclog.EventContext, joined string, values []string) string {
+	if ec.Sanitizer == nil {
+		return joined
+	}
+
+	sanitized := make([]string, len(values))
+	for i, value := range values {
+		sanitized[i] = ec.Sanitize(value)
+	}
+	return strings.Join(sanitized, ",")
+}
 
 // AuthenticationLoginSuccess generates authn_login_success[:userid]
 //
@@ -158,11 +180,14 @@ const (
 //
 // When the feature exists to lock an account after x retries or other
 // condition, the lock should be logged with relevant data.
+//
+// If sanitization is enabled, reason is sanitized.
 func AuthenticationLoginLock(reason LoginLockReason) seclog.EventFunc {
 	// Converted once here instead of on every log call.
 	reasonValue := string(reason)
 	return func(ec seclog.EventContext) seclog.Event {
 		principal := ec.Principal.String()
+		reasonValue := ec.Sanitize(reasonValue)
 		return seclog.Event{
 			Name:        "authn_login_lock",
 			Severity:    seclog.SeverityWarn,
@@ -225,11 +250,14 @@ func AuthenticationPasswordChangeFail() seclog.EventFunc {
 // AuthenticationTokenCreated generates authn_token_created[:userid,entitlement(s)]
 //
 // When a token is created for service access it should be recorded.
+//
+// If sanitization is enabled, entitlements are sanitized.
 func AuthenticationTokenCreated(entitlements ...string) seclog.EventFunc {
-	// Joined here, so the event does not retain the caller's slice.
+	entitlements = slices.Clone(entitlements)
 	entitlementsStr := strings.Join(entitlements, ",")
 	return func(ec seclog.EventContext) seclog.Event {
 		principal := ec.Principal.String()
+		entitlementsStr := sanitizeJoin(ec, entitlementsStr, entitlements)
 		return seclog.Event{
 			Name:        "authn_token_created",
 			Severity:    seclog.SeverityInfo,
@@ -248,9 +276,12 @@ func AuthenticationTokenCreated(entitlements ...string) seclog.EventFunc {
 // AuthenticationTokenRevoked generates authn_token_revoked[:userid,tokenid]
 //
 // A token has been revoked for the given account.
+//
+// If sanitization is enabled, tokenID is sanitized.
 func AuthenticationTokenRevoked(tokenID string) seclog.EventFunc {
 	return func(ec seclog.EventContext) seclog.Event {
 		principal := ec.Principal.String()
+		tokenID := ec.Sanitize(tokenID)
 		return seclog.Event{
 			Name:        "authn_token_revoked",
 			Severity:    seclog.SeverityInfo,
@@ -269,9 +300,12 @@ func AuthenticationTokenRevoked(tokenID string) seclog.EventFunc {
 // AuthenticationTokenReuse generates authn_token_reuse[:userid,tokenid]
 //
 // A token has been reused for the given account.
+//
+// If sanitization is enabled, tokenID is sanitized.
 func AuthenticationTokenReuse(tokenID string) seclog.EventFunc {
 	return func(ec seclog.EventContext) seclog.Event {
 		principal := ec.Principal.String()
+		tokenID := ec.Sanitize(tokenID)
 		return seclog.Event{
 			Name:        "authn_token_reuse",
 			Severity:    seclog.SeverityCritical,
