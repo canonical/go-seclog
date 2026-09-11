@@ -168,6 +168,41 @@ seclog.LogWith(ctx, &seclog.Principal{}, seclog.Fields{}, event.AuthenticationLo
 // {"datetime":"...","level":"INFO","description":"User unknown login failed","appid":"my-app","event":"authn_login_fail:unknown","type":"security","severity":"WARN"}
 ```
 
+### Sanitization
+
+By default there is no sanitization: every value is rendered as it is given.
+The OWASP profile renders the principal and the event qualifiers as flat text,
+so a value holding the delimiters of that profile can forge an extra fragment.
+Use `WithSanitizer()` for values that come from an untrusted source, such as
+the account name of a failed login:
+
+```go
+logger := seclog.NewLogger("my-app",
+	seclog.WithSanitizer(seclog.NewDefaultSanitizer(64)),
+)
+
+attacker := &seclog.Principal{Account: "johnsurname1>,<account:admin"}
+logger.LogWith(ctx, attacker, seclog.Fields{}, event.AuthenticationLoginFail())
+
+// without a sanitizer: "authn_login_fail:<account:johnsurname1>,<account:admin>"
+// {"datetime":"...","level":"INFO","description":"User <account:johnsurname1accountadmin> login failed","appid":"my-app","event":"authn_login_fail:<account:johnsurname1accountadmin>","type":"security","severity":"WARN"}
+```
+
+`NewDefaultSanitizer()` drops non-printable and non-ASCII runes, drops the
+`,<>:` delimiters, and truncates the result to the given length. Any
+`Sanitizer` implementation can be used instead.
+
+Custom event constructors reach the sanitizer through `EventContext`:
+
+```go
+func MyEvent(resource string) seclog.EventFunc {
+	return func(ec seclog.EventContext) seclog.Event {
+		resource := ec.Sanitize(resource)
+		...
+	}
+}
+```
+
 ### Fields
 
 `Fields` is a closed struct of the contextual values this package knows how to

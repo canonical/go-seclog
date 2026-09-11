@@ -18,6 +18,7 @@ package event
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/canonical/go-seclog"
@@ -25,14 +26,14 @@ import (
 
 // UserCreated generates user_created:[userid,newuserid,attributes[one,two,three]]
 //
-// When creating new users, logging the specifics of the user creation event is
-// helpful, especially if new users can be created with administration
-// privileges.
+// If sanitization is enabled, newUserID and attributes are sanitized.
 func UserCreated(newUserID string, attributes ...string) seclog.EventFunc {
-	// Joined here, so the event does not retain the caller's slice.
+	attributes = slices.Clone(attributes)
 	attributesStr := strings.Join(attributes, ",")
 	return func(ec seclog.EventContext) seclog.Event {
 		principal := ec.Principal.String()
+		newUserID := ec.Sanitize(newUserID)
+		attributesStr := sanitizeJoin(ec, attributesStr, attributes)
 		return seclog.Event{
 			Name:        "user_created",
 			Severity:    seclog.SeverityInfo,
@@ -50,13 +51,14 @@ func UserCreated(newUserID string, attributes ...string) seclog.EventFunc {
 
 // UserUpdated generates user_updated:[userid,onuserid,attributes[one,two,three]]
 //
-// When updating users, logging the specifics of the user update event is
-// helpful, especially if users can be updated with administration privileges.
+// If sanitization is enabled, onUserID and attributes are sanitized.
 func UserUpdated(onUserID string, attributes ...string) seclog.EventFunc {
-	// Joined here, so the event does not retain the caller's slice.
+	attributes = slices.Clone(attributes)
 	attributesStr := strings.Join(attributes, ",")
 	return func(ec seclog.EventContext) seclog.Event {
 		principal := ec.Principal.String()
+		onUserID := ec.Sanitize(onUserID)
+		attributesStr := sanitizeJoin(ec, attributesStr, attributes)
 		return seclog.Event{
 			Name:        "user_updated",
 			Severity:    seclog.SeverityInfo,

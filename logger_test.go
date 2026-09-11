@@ -42,6 +42,7 @@ func TestNewLogger(t *testing.T) {
 		wantFields       seclog.Fields
 		wantModel        seclog.Model
 		wantHandler      slog.Handler
+		wantSanitizer    bool
 		wantErrorHandler bool
 	}{{
 		name:      "defaults to the OWASP model",
@@ -124,6 +125,25 @@ func TestNewLogger(t *testing.T) {
 		options:   []seclog.Option{seclog.WithErrorHandler(nil)},
 		wantModel: seclog.NewOWASPModel(),
 	}, {
+		name:          "explicit sanitizer",
+		appID:         testAppID,
+		wantAppID:     testAppID,
+		options:       []seclog.Option{seclog.WithSanitizer(seclog.NewDefaultSanitizer(64))},
+		wantModel:     seclog.NewOWASPModel(),
+		wantSanitizer: true,
+	}, {
+		name:      "no sanitizer by default",
+		appID:     testAppID,
+		wantAppID: testAppID,
+		options:   nil,
+		wantModel: seclog.NewOWASPModel(),
+	}, {
+		name:      "a nil sanitizer keeps the default",
+		appID:     testAppID,
+		wantAppID: testAppID,
+		options:   []seclog.Option{seclog.WithSanitizer(nil)},
+		wantModel: seclog.NewOWASPModel(),
+	}, {
 		name:      "an empty application ID becomes unknown",
 		appID:     "",
 		wantAppID: "unknown",
@@ -145,6 +165,7 @@ func TestNewLogger(t *testing.T) {
 			c.Assert(logger.DefaultFields(), qt.DeepEquals, test.wantFields)
 			c.Assert(logger.Model(), qt.Equals, test.wantModel)
 			c.Assert(logger.Handler(), qt.IsNotNil)
+			c.Assert(logger.Sanitizer() != nil, qt.Equals, test.wantSanitizer)
 			c.Assert(logger.ErrorHandler() != nil, qt.Equals, test.wantErrorHandler)
 			assertHandler(c, logger, test.wantHandler)
 		})
@@ -519,6 +540,173 @@ func TestLogResolvesTheContextOnce(t *testing.T) {
 	c.Assert(observed[0], qt.DeepEquals, observed[1])
 	c.Assert(observed[0].Principal, qt.DeepEquals, principal)
 	c.Assert(observed[0].Fields, qt.DeepEquals, seclog.Fields{TraceID: "trace-1"})
+}
+
+// TestWithSanitizer asserts that the configured sanitizer reaches the
+// rendered principal, the event constructors and every model.
+func TestWithSanitizer(t *testing.T) {
+	c := qt.New(t)
+
+	// The principal carries the OWASP delimiters, so that an unsanitized
+	// rendering would forge a second account fragment.
+	injected := &seclog.Principal{Account: "user1>,<account:admin", Name: "John\nDoe"}
+
+	tests := []struct {
+		name      string
+		model     seclog.Model
+		options   []seclog.Option
+		principal *seclog.Principal
+		want      map[string]any
+	}{{
+		name:      "without a sanitizer the members are rendered as given",
+		model:     seclog.NewOWASPModel(),
+		principal: injected,
+		want: owaspRecord(
+			"authn:<account:user1>,<account:admin,name:John\nDoe>",
+			"User <account:user1>,<account:admin,name:John\nDoe>",
+			"INFO", nil),
+	}, {
+		name:      "the OWASP rendering is sanitized",
+		model:     seclog.NewOWASPModel(),
+		options:   []seclog.Option{seclog.WithSanitizer(seclog.NewDefaultSanitizer(64))},
+		principal: injected,
+		want: owaspRecord(
+			"authn:<account:user1accountadmin,name:JohnDoe>",
+			"User <account:user1accountadmin,name:JohnDoe>",
+			"INFO", nil),
+	}, {
+		name:      "a nil sanitizer keeps the members",
+		model:     seclog.NewOWASPModel(),
+		options:   []seclog.Option{seclog.WithSanitizer(nil)},
+		principal: injected,
+		want: owaspRecord(
+			"authn:<account:user1>,<account:admin,name:John\nDoe>",
+			"User <account:user1>,<account:admin,name:John\nDoe>",
+			"INFO", nil),
+	}, {
+		name:      "the ECS members are sanitized",
+		model:     seclog.NewECSModel(),
+		options:   []seclog.Option{seclog.WithSanitizer(seclog.NewDefaultSanitizer(64))},
+		principal: injected,
+		want: map[string]any{
+			"message":        "User <account:user1accountadmin,name:JohnDoe>",
+			"service.name":   testAppID,
+			"event.code":     "authn",
+			"event.severity": float64(1),
+			"log.level":      "INFO",
+			"user.name":      "user1accountadmin",
+			"user.full_name": "JohnDoe",
+		},
+	}, {
+		name:      "the sanitizer truncates long members",
+		model:     seclog.NewOWASPModel(),
+		options:   []seclog.Option{seclog.WithSanitizer(seclog.NewDefaultSanitizer(4))},
+		principal: &seclog.Principal{Account: "username1"},
+		want: owaspRecord(
+			"authn:<account:user>",
+			"User <account:user>",
+			"INFO", nil),
+	}, {
+		name:      "a principal left empty by the sanitizer is unknown",
+		model:     seclog.NewOWASPModel(),
+		options:   []seclog.Option{seclog.WithSanitizer(seclog.NewDefaultSanitizer(64))},
+		principal: &seclog.Principal{Account: "<<>>"},
+		want:      owaspRecord("authn:unknown", "User unknown", "INFO", nil),
+	}}
+
+	// The event renders the principal both as a qualifier and in its
+	// description, as the built-in constructors do.
+	principalEvent := func(ec seclog.EventContext) seclog.Event {
+		return seclog.Event{
+			Name:        "authn",
+			Severity:    seclog.SeverityInfo,
+			Qualifiers:  []string{ec.Principal.String()},
+			Description: "User " + ec.Principal.String(),
+		}
+	}
+
+	for _, test := range tests {
+		c.Run(test.name, func(c *qt.C) {
+			logger, decode := jsonLogger(test.model, testAppID, test.options...)
+			ctx := seclog.ContextWithPrincipal(context.Background(), test.principal)
+
+			logger.Log(ctx, principalEvent)
+
+			assertRecords(c, decode, []map[string]any{test.want})
+		})
+	}
+}
+
+// TestLogSanitizesEventValues asserts that the sanitizer reaches the values an
+// event constructor receives from the application, through EventContext.
+func TestLogSanitizesEventValues(t *testing.T) {
+	c := qt.New(t)
+
+	tests := []struct {
+		name    string
+		options []seclog.Option
+		want    string
+	}{{
+		name: "without a sanitizer the value is kept",
+		want: "resource:<admin>",
+	}, {
+		name:    "with a sanitizer the value is sanitized",
+		options: []seclog.Option{seclog.WithSanitizer(seclog.NewDefaultSanitizer(64))},
+		want:    "resourceadmin",
+	}}
+
+	for _, test := range tests {
+		c.Run(test.name, func(c *qt.C) {
+			logger, decode := jsonLogger(seclog.NewOWASPModel(), testAppID, test.options...)
+
+			logger.Log(context.Background(), func(ec seclog.EventContext) seclog.Event {
+				return seclog.Event{
+					Name:        "authz",
+					Severity:    seclog.SeverityInfo,
+					Description: ec.Sanitize("resource:<admin>"),
+				}
+			})
+
+			assertRecords(c, decode, []map[string]any{
+				owaspRecord("authz", test.want, "INFO", nil),
+			})
+		})
+	}
+}
+
+// TestLogKeepsTheContextPrincipal asserts that the sanitizer is applied to a
+// copy, so that the principal stored in the context is not modified and does
+// not carry the sanitizer over to a later call made with another logger.
+func TestLogKeepsTheContextPrincipal(t *testing.T) {
+	c := qt.New(t)
+
+	principal := &seclog.Principal{Account: "user1>,<account:admin"}
+	ctx := seclog.ContextWithPrincipal(context.Background(), principal)
+
+	sanitizing, decodeSanitized := jsonLogger(seclog.NewOWASPModel(), testAppID,
+		seclog.WithSanitizer(seclog.NewDefaultSanitizer(64)))
+	plain, decodePlain := jsonLogger(seclog.NewOWASPModel(), testAppID)
+
+	principalEvent := func(ec seclog.EventContext) seclog.Event {
+		return seclog.Event{
+			Name:        "authn",
+			Severity:    seclog.SeverityInfo,
+			Description: ec.Principal.String(),
+		}
+	}
+
+	sanitizing.Log(ctx, principalEvent)
+	plain.Log(ctx, principalEvent)
+
+	assertRecords(c, decodeSanitized, []map[string]any{
+		owaspRecord("authn", "<account:user1accountadmin>", "INFO", nil),
+	})
+	// The second logger has no sanitizer, so it must still observe the
+	// original members.
+	assertRecords(c, decodePlain, []map[string]any{
+		owaspRecord("authn", "<account:user1>,<account:admin>", "INFO", nil),
+	})
+	c.Assert(seclog.PrincipalFromContext(ctx), qt.DeepEquals, principal)
 }
 
 func TestLogSkipsDisabledHandlers(t *testing.T) {
